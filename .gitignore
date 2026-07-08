@@ -218,6 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Generated video outputs
+output_videos/
 result_*.webm
 *.mp4
 *.webm

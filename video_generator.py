@@ -411,7 +411,9 @@ def process_and_crop_image_with_openai(image_path, openai_key):
         return image_path
 
 def generate_product_video(product_no, api_key=None, openai_key=None, video_model="Luma Dream Machine"):
-    output_filename = f"result_{product_no}.webm"
+    output_dir = "output_videos"
+    os.makedirs(output_dir, exist_ok=True)
+    output_filename = os.path.join(output_dir, f"result_{product_no}.webm")
     if os.path.exists(output_filename):
         print(f"=== 캐시된 동영상 발견: {output_filename}을 재사용합니다. ===")
         return output_filename
@@ -549,7 +551,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             
         final_video = concatenate_videoclips(final_clips, padding=-0.5, method="compose")
         
-        output_filename = f"result_{product_no}.webm"
+        output_filename = os.path.join(output_dir, f"result_{product_no}.webm")
         final_video.write_videofile(
             output_filename, 
             fps=24, 

@@ -138,7 +138,7 @@ with col1:
         for idx, prd in enumerate(products):
             with cols[idx % 4]:
                 # 이미 생성된 동영상이 있는지 확인
-                video_file_path = f"result_{prd['id']}.webm"
+                video_file_path = f"output_videos/result_{prd['id']}.webm"
                 video_exists = os.path.exists(video_file_path)
                 
                 # 재생 상태 관리 키
