@@ -61,7 +61,7 @@ def test_gemini_key(api_key):
         from google import genai as google_genai_sdk
         client = google_genai_sdk.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             contents="Hello, please reply with 'API Key is working!'"
         )
         if response.text:

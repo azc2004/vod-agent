@@ -218,15 +218,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Generated video outputs
-*.mp4
-*.webm
-output_videos/*
-!output_videos/result_413068634.webm
-!output_videos/result_413068691.webm
-!output_videos/result_413069725.webm
-!output_videos/result_413069839.webm
-!output_videos/result_413069840.webm
-!output_videos/result_413068710.webm
+# *.mp4
+# *.webm
+# output_videos/*
 
 # OS generated files
 .DS_Store
