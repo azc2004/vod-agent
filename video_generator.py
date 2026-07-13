@@ -458,19 +458,8 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 else:
                     add_img_paths.append(path)
             
+        # 상품상세이미지는 참고하지 않으므로 detail_img_paths를 빈 리스트로 설정하고 다운로드를 건너뜁니다.
         detail_img_paths = []
-        # 재질 및 디테일 확인을 위해 최대 5장 다운로드 후 필터링
-        for url in detail_image_urls[:5]:
-            path = download_image(url, temp_dir)
-            if path:
-                if openai_key:
-                    processed_path = process_and_crop_image_with_openai(path, openai_key)
-                    if processed_path:
-                        detail_img_paths.append(processed_path)
-                    else:
-                        if os.path.exists(path): os.remove(path)
-                else:
-                    detail_img_paths.append(path)
             
         # 4. 동영상 클립 구성
         print("4. 동영상 렌더링 준비 중...")
@@ -511,33 +500,68 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             video_clip = prepare_video_clip(video_clip, target_resolution)
             clips.append(video_clip)
             
-            # 제품 세부 모습을 볼 수 있는 디테일 포커싱 컷 추가 (최대 3장, 각 3.0초)
-            # 총 재생 시간: AI 비디오(5초) + 디테일 컷(최대 9초) = 약 14초 (15초 이내 완료)
-            focus_paths = detail_img_paths[:3] if detail_img_paths else add_img_paths[:3]
-            for idx, img_path in enumerate(focus_paths):
-                clip = prepare_clip(img_path, target_resolution, duration=3.0)
-                # 원단 및 디테일 확인을 위해 서서히 줌인 연출 적용
-                clip = clip.with_effects([vfx.Resize(lambda t: 1.03 + 0.02 * t)])
-                clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
-                clips.append(clip)
+            # 총 재생 시간 10초를 맞추기 위한 로직
+            # AI 비디오 길이를 L이라 할 때, 추가 이미지 클립 K개(2개)를 넣는다면:
+            # L + K * d - 0.5 * K = 10.0 => K * d = 10.0 - L + 0.5 * K => d = (10.0 - L) / K + 0.5
+            L = video_clip.duration
+            if L >= 10.0:
+                # 만약 AI 비디오가 10초 이상이면 10초로 자르고 그것만 사용
+                try:
+                    video_clip = video_clip.subclipped(0, 10.0)
+                except AttributeError:
+                    video_clip = video_clip.subclip(0, 10.0)
+                clips = [video_clip]
+            else:
+                K = 2
+                d = (10.0 - L) / K + 0.5
+                if d < 1.0:
+                    d = 1.0
+                
+                # 상세 이미지를 제외하므로 추가 이미지(add_img_paths)만 사용
+                focus_paths = add_img_paths[:K]
+                while len(focus_paths) < K and main_img_path:
+                    focus_paths.append(main_img_path)
+                
+                image_clips = []
+                for img_path in focus_paths:
+                    clip = prepare_clip(img_path, target_resolution, duration=d)
+                    clip = clip.with_effects([vfx.Resize(lambda t: 1.03 + 0.02 * t)])
+                    clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
+                    image_clips.append(clip)
+                
+                clips = [video_clip] + image_clips
         else:
-            # Fallback: 스틸 이미지 줌인 효과 연출 (총 15초 이내)
+            # Fallback: 스틸 이미지 줌인 효과 연출 (정확히 10초 재생)
             print("AI 비디오 생성 실패 또는 비활성화로 인해, 스틸 이미지 슬라이드쇼로 대체합니다.")
+            all_img_paths = []
             if main_img_path:
-                clip = prepare_clip(main_img_path, target_resolution, duration=3.0)
+                all_img_paths.append(main_img_path)
+            all_img_paths.extend(add_img_paths)
+            
+            all_img_paths = [p for p in all_img_paths if p and os.path.exists(p)]
+            
+            if not all_img_paths:
+                raise Exception("비디오를 생성할 이미지가 없습니다.")
+            
+            # 최대 4개 이미지 사용
+            M = min(4, len(all_img_paths))
+            if M < 2:
+                # 1장만 있는 경우 10초짜리 단일 클립
+                clip = prepare_clip(all_img_paths[0], target_resolution, duration=10.0)
                 clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
                 clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
-                clips.append(clip)
-            
-            # 추가 이미지 최대 4장 (각 3.0초) 추가 -> 총 15초
-            for idx, img_path in enumerate(add_img_paths[:4]):
-                clip = prepare_clip(img_path, target_resolution, duration=3.0)
-                if idx % 2 == 0:
-                    clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
-                else:
-                    clip = clip.with_effects([vfx.Resize(lambda t: 1.08 - 0.03 * t)])
-                clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
-                clips.append(clip)
+                clips = [clip]
+            else:
+                # M * d - 0.5 * (M - 1) = 10.0 => d = (10.0 + 0.5 * (M - 1)) / M
+                d = (10.0 + 0.5 * (M - 1)) / M
+                for idx, img_path in enumerate(all_img_paths[:M]):
+                    clip = prepare_clip(img_path, target_resolution, duration=d)
+                    if idx % 2 == 0:
+                        clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
+                    else:
+                        clip = clip.with_effects([vfx.Resize(lambda t: 1.08 - 0.03 * t)])
+                    clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
+                    clips.append(clip)
             
         if not clips:
             raise Exception("비디오 클립을 생성할 유효한 이미지가 없습니다.")
