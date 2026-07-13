@@ -599,7 +599,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 clips = [video_clip]
             else:
                 K = 2
-                d = (10.0 - L) / K + 0.5
+                d = (10.0 - L) / K
                 if d < 1.0:
                     d = 1.0
                 
@@ -612,7 +612,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 for img_path in focus_paths:
                     current_face_box = face_box if img_path == main_img_path else None
                     clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
-                    clip = clip.with_effects([vfx.Resize(lambda t: 1.03 + 0.02 * t)])
+                    clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
                     clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                     image_clips.append(clip)
                 
@@ -635,33 +635,27 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             if M < 2:
                 # 1장만 있는 경우 10초짜리 단일 클립
                 clip = prepare_clip(all_img_paths[0], target_resolution, duration=10.0, face_box=face_box)
-                clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
+                clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
                 clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                 clips = [clip]
             else:
-                # M * d - 0.5 * (M - 1) = 10.0 => d = (10.0 + 0.5 * (M - 1)) / M
-                d = (10.0 + 0.5 * (M - 1)) / M
+                d = 10.0 / M
                 for idx, img_path in enumerate(all_img_paths[:M]):
                     current_face_box = face_box if img_path == main_img_path else None
                     clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
                     if idx % 2 == 0:
-                        clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
+                        clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
                     else:
-                        clip = clip.with_effects([vfx.Resize(lambda t: 1.08 - 0.03 * t)])
+                        clip = clip.with_effects([vfx.Resize(lambda t: 1.02 - 0.005 * t)])
                     clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                     clips.append(clip)
             
         if not clips:
             raise Exception("비디오 클립을 생성할 유효한 이미지가 없습니다.")
             
-        # 클립들을 부드러운 트랜지션(CrossFadeIn)으로 연결
+        # 클립들을 깜빡임 없이 매끄럽게 겹침 없이 병합
         print("5. 최종 동영상 인코딩 중... (시간이 소요될 수 있습니다)")
-        final_clips = [clips[0]]
-        for clip in clips[1:]:
-            # 앞 클립과 0.5초 겹치며 크로스페이드 인
-            final_clips.append(clip.with_effects([vfx.CrossFadeIn(0.5)]))
-            
-        final_video = concatenate_videoclips(final_clips, padding=-0.5, method="compose")
+        final_video = concatenate_videoclips(clips, padding=0, method="compose")
         
         output_filename = os.path.join(output_dir, f"result_{product_no}.webm")
         final_video.write_videofile(
