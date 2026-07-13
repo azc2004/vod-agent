@@ -154,9 +154,20 @@ with col1:
                     with open(video_file_path, 'rb') as vf:
                         v_bytes = vf.read()
                     st.video(v_bytes, format="video/webm", autoplay=True)
-                    if st.button("🖼️ 이미지 보기", key=f"stop_{prd['id']}", use_container_width=True):
-                        st.session_state[playing_key] = False
-                        st.rerun()
+                    
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if st.button("🖼️ 이미지 보기", key=f"stop_{prd['id']}", use_container_width=True):
+                            st.session_state[playing_key] = False
+                            st.rerun()
+                    with btn_col2:
+                        if st.button("🗑️ 삭제", key=f"delete_playing_{prd['id']}", use_container_width=True):
+                            try:
+                                os.remove(video_file_path)
+                                st.session_state[playing_key] = False
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"삭제 실패: {err}")
                 else:
                     if prd["img"]:
                         if video_exists:
@@ -172,10 +183,19 @@ with col1:
                                 f'</div>',
                                 unsafe_allow_html=True
                             )
-                            # 이미지 바로 아래에 재생 버튼 배치
-                            if st.button("▶️ 동영상 재생", key=f"play_trigger_{prd['id']}", use_container_width=True):
-                                st.session_state[playing_key] = True
-                                st.rerun()
+                            # 이미지 바로 아래에 재생 및 삭제 버튼 배치
+                            btn_col1, btn_col2 = st.columns(2)
+                            with btn_col1:
+                                if st.button("▶️ 재생", key=f"play_trigger_{prd['id']}", use_container_width=True):
+                                    st.session_state[playing_key] = True
+                                    st.rerun()
+                            with btn_col2:
+                                if st.button("🗑️ 삭제", key=f"delete_trigger_{prd['id']}", use_container_width=True):
+                                    try:
+                                        os.remove(video_file_path)
+                                        st.rerun()
+                                    except Exception as err:
+                                        st.error(f"삭제 실패: {err}")
                         else:
                             # 일반 이미지 링크
                             st.markdown(
@@ -242,6 +262,13 @@ with col2:
                             mime="video/webm",
                             use_container_width=True
                         )
+                        # 삭제 버튼 제공
+                        if st.button("🗑️ 생성된 동영상 삭제", key=f"delete_right_{target_prd_id}", use_container_width=True):
+                            try:
+                                os.remove(output_video_path)
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"삭제 실패: {err}")
                     else:
                         st.error("영상 생성은 완료되었으나, 파일을 찾을 수 없습니다.")
                         
