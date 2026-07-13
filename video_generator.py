@@ -612,13 +612,11 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 for img_path in focus_paths:
                     current_face_box = face_box if img_path == main_img_path else None
                     clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
-                    clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
-                    clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                     image_clips.append(clip)
                 
                 clips = [video_clip] + image_clips
         else:
-            # Fallback: 스틸 이미지 줌인 효과 연출 (정확히 10초 재생)
+            # Fallback: 스틸 이미지 슬라이드쇼 연출 (정확히 10초 재생)
             print("AI 비디오 생성 실패 또는 비활성화로 인해, 스틸 이미지 슬라이드쇼로 대체합니다.")
             all_img_paths = []
             if main_img_path:
@@ -635,19 +633,12 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             if M < 2:
                 # 1장만 있는 경우 10초짜리 단일 클립
                 clip = prepare_clip(all_img_paths[0], target_resolution, duration=10.0, face_box=face_box)
-                clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
-                clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                 clips = [clip]
             else:
                 d = 10.0 / M
                 for idx, img_path in enumerate(all_img_paths[:M]):
                     current_face_box = face_box if img_path == main_img_path else None
                     clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
-                    if idx % 2 == 0:
-                        clip = clip.with_effects([vfx.Resize(lambda t: 1.0 + 0.005 * t)])
-                    else:
-                        clip = clip.with_effects([vfx.Resize(lambda t: 1.02 - 0.005 * t)])
-                    clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                     clips.append(clip)
             
         if not clips:
