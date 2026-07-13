@@ -54,7 +54,7 @@ def fetch_product_list():
         return []
 
 # 비디오 생성 모델 기본값 설정
-video_model = "Google Veo 3.1"
+video_model = "Google Veo 3.1 Lite"
 
 def test_gemini_key(api_key):
     try:

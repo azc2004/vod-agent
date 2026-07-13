@@ -38,7 +38,7 @@ def generate_veo_video(image_path, api_key):
         
         print("Veo API에 비디오 생성 요청을 전송합니다...")
         operation = client.models.generate_videos(
-            model="veo-3.1-fast-generate-preview",
+            model="veo-3.1-lite-generate-preview",
             prompt="이 이미지의 옷을 똑같이 입은 전문 패션 모델이 우아하고 천천히 360도 회전(턴)하는 실사 동영상. 모델이 천천히 돌면서 옷의 앞태, 옆태, 뒤태를 모두 보여주며 의류의 핏, 스타일, 원단 재질의 디테일과 텍스처를 선명하게 노출합니다. 동영상 재생 내내 배경화면은 아무런 변화 없이 단일 톤의 '깨끗하고 고정된 회색 스튜디오 배경'으로 완벽하게 동일하게 유지되어야 하며, 카메라 무빙은 흔들림 없이 아주 부드럽고 천천히 줌인되며, 옷의 디자인과 색상, 패턴은 입력 이미지와 완벽하게 일치하고 왜곡이나 환각 현상이 없어야 합니다.",
             image=img_obj,
             config=types.GenerateVideosConfig(
@@ -274,8 +274,10 @@ def download_image(url, output_dir):
         print(f"Failed to download {url}: {e}")
         return None
 
-def prepare_clip(image_path, target_size=(1080, 1920), duration=2):
-    """이미지를 지정된 해상도로 자르고 리사이징하여 비디오 클립으로 만듭니다."""
+def prepare_clip(image_path, target_size=(1080, 1920), duration=2, face_box=None):
+    """이미지를 지정된 해상도로 자르고 리사이징하여 비디오 클립으로 만듭니다.
+    얼굴 바운딩 박스가 지정되면 얼굴이 잘리지 않도록 조정하여 크롭합니다.
+    """
     clip = ImageClip(image_path)
     
     w, h = clip.size
@@ -288,15 +290,74 @@ def prepare_clip(image_path, target_size=(1080, 1920), duration=2):
         # 이미지가 더 넓은 경우: 높이를 맞추고 가로를 자름
         clip = clip.resized(height=target_h)
         new_w = clip.size[0]
-        x_center = new_w / 2
-        clip = clip.cropped(x1=x_center - target_w/2, y1=0, x2=x_center + target_w/2, y2=target_h)
+        
+        if face_box and "xmin" in face_box and "xmax" in face_box:
+            # face_box에 맞추어 가로 크롭 중앙을 결정
+            face_x_center = ((face_box["xmin"] + face_box["xmax"]) / 2) * new_w
+            x1 = int(face_x_center - target_w / 2)
+            x2 = x1 + target_w
+            
+            # 바운더리 체크
+            if x1 < 0:
+                x1 = 0
+                x2 = target_w
+            elif x2 > new_w:
+                x2 = new_w
+                x1 = new_w - target_w
+            clip = clip.cropped(x1=int(x1), y1=0, x2=int(x2), y2=target_h)
+        else:
+            x_center = int(new_w / 2)
+            clip = clip.cropped(x1=x_center - int(target_w/2), y1=0, x2=x_center + int(target_w/2), y2=target_h)
     else:
         # 이미지가 더 높은 경우: 너비를 맞추고 세로를 자름
         clip = clip.resized(width=target_w)
         new_h = clip.size[1]
-        y_center = new_h / 2
-        clip = clip.cropped(x1=0, y1=y_center - target_h/2, x2=target_w, y2=y_center + target_h/2)
         
+        if face_box and "ymin" in face_box and "ymax" in face_box:
+            # face_box에 맞추어 세로 크롭 범위를 조절하여 얼굴이 잘리지 않게 함
+            face_ymin_pixel = face_box["ymin"] * new_h
+            face_ymax_pixel = face_box["ymax"] * new_h
+            
+            # 얼굴 중심에 포커스
+            face_y_center = (face_ymin_pixel + face_ymax_pixel) / 2
+            y1 = int(face_y_center - target_h / 2)
+            y2 = y1 + target_h
+            
+            # 바운더리 체크
+            if y1 < 0:
+                y1 = 0
+                y2 = target_h
+            elif y2 > new_h:
+                y2 = new_h
+                y1 = new_h - target_h
+                
+            # 얼굴 영역이 잘려나가는지 재검증 후 조절
+            if face_ymin_pixel < y1:
+                y1 = max(0, int(face_ymin_pixel - 20))
+                y2 = y1 + target_h
+                if y2 > new_h:
+                    y2 = new_h
+                    y1 = new_h - target_h
+            elif face_ymax_pixel > y2:
+                y2 = min(new_h, int(face_ymax_pixel + 20))
+                y1 = y2 - target_h
+                if y1 < 0:
+                    y1 = 0
+                    y2 = target_h
+                    
+            clip = clip.cropped(x1=0, y1=int(y1), x2=target_w, y2=int(y2))
+        else:
+            # face_box가 없을 경우에도 9:16 인물 크롭 컷을 배려해 약간 위쪽 중심(0.4)으로 자름
+            y_center = int(new_h * 0.4)
+            y1 = y_center - int(target_h/2)
+            y2 = y1 + target_h
+            if y1 < 0:
+                y1 = 0
+                y2 = target_h
+            elif y2 > new_h:
+                y2 = new_h
+                y1 = new_h - target_h
+            clip = clip.cropped(x1=0, y1=int(y1), x2=target_w, y2=int(y2))
     return clip.with_duration(duration)
 
 def prepare_video_clip(clip, target_size=(1080, 1920)):
@@ -318,14 +379,15 @@ def prepare_video_clip(clip, target_size=(1080, 1920)):
         clip = clip.cropped(x1=0, y1=y_center - target_h/2, x2=target_w, y2=y_center + target_h/2)
     return clip
 
-def process_and_crop_image_with_openai(image_path, openai_key):
+def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=False):
     """
     OpenAI gpt-4o-mini 비전 모델을 사용하여 이미지를 분석합니다.
     1. 패션 모델이 포함되어 있는지 확인합니다. (모델이 없는 이미지는 제외하기 위해 False 반환)
     2. 이미지에 텍스트 영역이 있다면, 모델이 포함된 깨끗한 영역의 정규화된 바운딩 박스(0.0 ~ 1.0)를 반환받아 잘라냅니다.
+    3. 대표이미지에서 모델 얼굴이 감지되면 영상에서 얼굴이 잘리지 않도록 face_box를 함께 반환할 수 있습니다.
     """
     if not openai_key:
-        return image_path
+        return (image_path, None) if return_face_box else image_path
         
     try:
         import base64
@@ -354,12 +416,16 @@ def process_and_crop_image_with_openai(image_path, openai_key):
                                 "1. 'has_model': true if a human fashion model or mannequin wearing the clothes is present in the image, false otherwise.\n"
                                 "2. 'has_text': true if there is any written text, specifications, notice, or sizing chart overlay in the image, false otherwise.\n"
                                 "3. 'crop_box': if 'has_model' is true, specify a bounding box that contains ONLY the model and the clothing, completely cropping out and excluding any text or banners. Specify normalized coordinates between 0.0 and 1.0 as a dictionary with 'ymin', 'xmin', 'ymax', 'xmax'. If there is no text, specify the entire image (i.e., {'ymin': 0.0, 'xmin': 0.0, 'ymax': 1.0, 'xmax': 1.0}).\n"
+                                "4. 'has_face': true if the human fashion model's face is clearly visible in the image, false otherwise.\n"
+                                "5. 'face_box': if 'has_face' is true, specify the bounding box containing the model's face (excluding hair or neck as much as possible, just the face area). Specify normalized coordinates between 0.0 and 1.0 as a dictionary with 'ymin', 'xmin', 'ymax', 'xmax'.\n"
                                 "\n"
                                 "Return JSON format example:\n"
                                 "{\n"
                                 "  \"has_model\": true,\n"
                                 "  \"has_text\": false,\n"
-                                "  \"crop_box\": {\"ymin\": 0.0, \"xmin\": 0.0, \"ymax\": 1.0, \"xmax\": 1.0}\n"
+                                "  \"crop_box\": {\"ymin\": 0.0, \"xmin\": 0.0, \"ymax\": 1.0, \"xmax\": 1.0},\n"
+                                "  \"has_face\": true,\n"
+                                "  \"face_box\": {\"ymin\": 0.1, \"xmin\": 0.45, \"ymax\": 0.2, \"xmax\": 0.55}\n"
                                 "}"
                             )
                         },
@@ -381,10 +447,12 @@ def process_and_crop_image_with_openai(image_path, openai_key):
         
         if not data.get("has_model", False):
             print(f"-> 모델 미검출로 이미지 제외: {image_path}")
-            return None
+            return (None, None) if return_face_box else None
             
         crop_box = data.get("crop_box")
-        if crop_box and (data.get("has_text", False) or crop_box["ymin"] > 0.0 or crop_box["xmin"] > 0.0 or crop_box["ymax"] < 1.0 or crop_box["xmax"] < 1.0):
+        has_crop = crop_box and (data.get("has_text", False) or crop_box["ymin"] > 0.0 or crop_box["xmin"] > 0.0 or crop_box["ymax"] < 1.0 or crop_box["xmax"] < 1.0)
+        
+        if has_crop:
             print(f"-> 텍스트 영역 크롭 시작: {crop_box}")
             pil_img = Image.open(image_path)
             width, height = pil_img.size
@@ -404,11 +472,28 @@ def process_and_crop_image_with_openai(image_path, openai_key):
             cropped_img.save(image_path)
             print(f"-> 텍스트 영역 잘라내기 완료 및 저장: {image_path} (크기: {cropped_img.size})")
             
-        return image_path
-        
+        # 얼굴 영역 반환 처리 및 좌표 변환
+        face_box = None
+        if data.get("has_face", False) and data.get("face_box"):
+            orig_face = data.get("face_box")
+            if has_crop:
+                # 크롭된 경우 상대 좌표 계산
+                c_ymin, c_xmin, c_ymax, c_xmax = crop_box["ymin"], crop_box["xmin"], crop_box["ymax"], crop_box["xmax"]
+                denom_y = c_ymax - c_ymin if (c_ymax - c_ymin) > 0 else 1.0
+                denom_x = c_xmax - c_xmin if (c_xmax - c_xmin) > 0 else 1.0
+                face_box = {
+                    "ymin": max(0.0, min(1.0, (orig_face["ymin"] - c_ymin) / denom_y)),
+                    "xmin": max(0.0, min(1.0, (orig_face["xmin"] - c_xmin) / denom_x)),
+                    "ymax": max(0.0, min(1.0, (orig_face["ymax"] - c_ymin) / denom_y)),
+                    "xmax": max(0.0, min(1.0, (orig_face["xmax"] - c_xmin) / denom_x))
+                }
+            else:
+                face_box = orig_face
+                
+        return (image_path, face_box) if return_face_box else image_path
     except Exception as e:
         print(f"OpenAI 이미지 처리 에러: {e}")
-        return image_path
+        return (image_path, None) if return_face_box else image_path
 
 def generate_product_video(product_no, api_key=None, openai_key=None, video_model="Luma Dream Machine"):
     output_dir = "output_videos"
@@ -441,8 +526,9 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
         main_img_path = download_image(main_image_url, temp_dir)
         
         # 메인 이미지에 텍스트가 있으면 잘라냅니다.
+        face_box = None
         if main_img_path and openai_key:
-            main_img_path = process_and_crop_image_with_openai(main_img_path, openai_key)
+            main_img_path, face_box = process_and_crop_image_with_openai(main_img_path, openai_key, return_face_box=True)
         
         add_img_paths = []
         # 전후좌우 및 다양한 핏을 노출하기 위해 최대 8장 다운로드 후 필터링
@@ -469,7 +555,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
         # Scene 1: 대표 이미지 활용 인트로
         animated_intro_path = None
         if api_key:
-            if video_model == "Google Veo 3.1" and main_img_path:
+            if video_model in ["Google Veo 3.1", "Google Veo 3.1 Lite"] and main_img_path:
                 try:
                     print("Google Veo 3.1 API를 사용하여 살아 움직이는 모델 워킹 영상 생성 중...")
                     animated_intro_path = generate_veo_video(main_img_path, api_key)
@@ -524,7 +610,8 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 
                 image_clips = []
                 for img_path in focus_paths:
-                    clip = prepare_clip(img_path, target_resolution, duration=d)
+                    current_face_box = face_box if img_path == main_img_path else None
+                    clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
                     clip = clip.with_effects([vfx.Resize(lambda t: 1.03 + 0.02 * t)])
                     clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                     image_clips.append(clip)
@@ -547,7 +634,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             M = min(4, len(all_img_paths))
             if M < 2:
                 # 1장만 있는 경우 10초짜리 단일 클립
-                clip = prepare_clip(all_img_paths[0], target_resolution, duration=10.0)
+                clip = prepare_clip(all_img_paths[0], target_resolution, duration=10.0, face_box=face_box)
                 clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
                 clip = clip.cropped(x_center=clip.size[0]/2, y_center=clip.size[1]/2, width=1080, height=1920)
                 clips = [clip]
@@ -555,7 +642,8 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                 # M * d - 0.5 * (M - 1) = 10.0 => d = (10.0 + 0.5 * (M - 1)) / M
                 d = (10.0 + 0.5 * (M - 1)) / M
                 for idx, img_path in enumerate(all_img_paths[:M]):
-                    clip = prepare_clip(img_path, target_resolution, duration=d)
+                    current_face_box = face_box if img_path == main_img_path else None
+                    clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
                     if idx % 2 == 0:
                         clip = clip.with_effects([vfx.Resize(lambda t: 1 + 0.03 * t)])
                     else:
@@ -580,9 +668,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             output_filename, 
             fps=24, 
             codec="libvpx-vp9", 
-            ffmpeg_params=["-crf", "18", "-b:v", "0"], 
-            audio=False, 
-            logger=None
+            audio=False
         )
         print(f"\n=== 성공: 동영상 생성 완료 -> {output_filename} ===")
         
