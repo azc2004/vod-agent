@@ -12,6 +12,26 @@ def play_video_modal(video_path):
         video_bytes = f.read()
     st.video(video_bytes)
 
+# 쿼리 파라미터를 통한 재생/삭제 액션 처리
+query_params = st.query_params
+if "delete_id" in query_params:
+    del_id = query_params["delete_id"]
+    video_file_path = f"output_videos/result_{del_id}.webm"
+    if os.path.exists(video_file_path):
+        try:
+            os.remove(video_file_path)
+        except Exception:
+            pass
+    st.query_params.clear()
+    st.rerun()
+
+if "play_id" in query_params:
+    play_id = query_params["play_id"]
+    playing_key = f"playing_{play_id}"
+    st.session_state[playing_key] = True
+    st.query_params.clear()
+    st.rerun()
+
 st.title("🎬 상품 동영상 자동 생성기")
 st.markdown("""
 하프클럽 상품 리스트에서 상품을 선택하거나 상품 번호를 직접 입력하여 
@@ -154,20 +174,9 @@ with col1:
                     with open(video_file_path, 'rb') as vf:
                         v_bytes = vf.read()
                     st.video(v_bytes, format="video/webm", autoplay=True)
-                    
-                    btn_col1, btn_col2 = st.columns(2)
-                    with btn_col1:
-                        if st.button("🖼️ 이미지 보기", key=f"stop_{prd['id']}", use_container_width=True):
-                            st.session_state[playing_key] = False
-                            st.rerun()
-                    with btn_col2:
-                        if st.button("🗑️ 삭제", key=f"delete_playing_{prd['id']}", use_container_width=True):
-                            try:
-                                os.remove(video_file_path)
-                                st.session_state[playing_key] = False
-                                st.rerun()
-                            except Exception as err:
-                                st.error(f"삭제 실패: {err}")
+                    if st.button("🖼️ 이미지 보기", key=f"stop_{prd['id']}", use_container_width=True):
+                        st.session_state[playing_key] = False
+                        st.rerun()
                 else:
                     if prd["img"]:
                         if video_exists:
@@ -183,19 +192,65 @@ with col1:
                                 f'</div>',
                                 unsafe_allow_html=True
                             )
-                            # 이미지 바로 아래에 재생 및 삭제 버튼 배치
-                            btn_col1, btn_col2 = st.columns(2)
-                            with btn_col1:
-                                if st.button("▶️ 재생", key=f"play_trigger_{prd['id']}", use_container_width=True):
-                                    st.session_state[playing_key] = True
-                                    st.rerun()
-                            with btn_col2:
-                                if st.button("🗑️ 삭제", key=f"delete_trigger_{prd['id']}", use_container_width=True):
-                                    try:
-                                        os.remove(video_file_path)
-                                        st.rerun()
-                                    except Exception as err:
-                                        st.error(f"삭제 실패: {err}")
+                            # 재생버튼 호버 시 우측 상단에 작은 x가 붙는 HTML/CSS 적용
+                            st.markdown(f"""
+                            <style>
+                            .btn-container {{
+                                position: relative;
+                                display: inline-block;
+                                width: 100%;
+                            }}
+                            .play-btn {{
+                                display: block;
+                                width: 100%;
+                                background-color: #f8f9fa;
+                                color: #212529;
+                                text-align: center;
+                                padding: 8px 16px;
+                                font-size: 14px;
+                                border-radius: 8px;
+                                text-decoration: none;
+                                font-weight: 500;
+                                border: 1px solid #dee2e6;
+                                transition: background-color 0.2s, color 0.2s;
+                            }}
+                            .play-btn:hover {{
+                                background-color: #e9ecef;
+                                color: #212529;
+                            }}
+                            .delete-x {{
+                                position: absolute;
+                                top: -6px;
+                                right: -6px;
+                                width: 18px;
+                                height: 18px;
+                                background-color: #fa5252;
+                                color: white;
+                                border-radius: 50%;
+                                text-align: center;
+                                line-height: 16px;
+                                font-size: 11px;
+                                font-weight: bold;
+                                text-decoration: none;
+                                opacity: 0;
+                                transition: opacity 0.2s, transform 0.2s;
+                                box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+                                transform: scale(0.8);
+                            }}
+                            .btn-container:hover .delete-x {{
+                                opacity: 1;
+                                transform: scale(1);
+                            }}
+                            .delete-x:hover {{
+                                background-color: #e03131;
+                                color: white;
+                            }}
+                            </style>
+                            <div class="btn-container">
+                                <a class="play-btn" href="?play_id={prd['id']}" target="_self">▶️ 재생</a>
+                                <a class="delete-x" href="?delete_id={prd['id']}" target="_self" title="동영상 삭제">×</a>
+                            </div>
+                            """, unsafe_allow_html=True)
                         else:
                             # 일반 이미지 링크
                             st.markdown(
