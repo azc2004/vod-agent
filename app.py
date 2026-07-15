@@ -5,10 +5,23 @@ from video_generator import generate_product_video
 
 st.set_page_config(page_title="상품 동영상 생성 봇", page_icon="🎬", layout="wide")
 
-@st.dialog("🎥 생성 완료된 동영상 재생", width="large")
+@st.dialog("🎥 생성 완료된 동영상 재생", width="small")
 def play_video_modal(video_path):
     st.write("로컬 파일로부터 생성된 동영상을 로드했습니다.")
-    st.video(video_path, autoplay=True)
+    import base64
+    try:
+        with open(video_path, "rb") as vf:
+            b64 = base64.b64encode(vf.read()).decode()
+        st.markdown(
+            f'<div style="width: 100%; aspect-ratio: 9/16; overflow: hidden; border-radius: 12px; border: 1px solid #ddd; background-color: #000; margin-bottom: 12px;">'
+            f'  <video autoplay loop controls playsinline style="width: 100%; height: 100%; object-fit: cover;">'
+            f'    <source src="data:video/webm;base64,{b64}" type="video/webm">'
+            f'  </video>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+    except Exception as e:
+        st.video(video_path, autoplay=True)
 
 st.title("🎬 상품 동영상 자동 생성기")
 st.markdown("""
@@ -18,8 +31,7 @@ st.markdown("""
 
 # API를 통해 상품 리스트 가져오기
 @st.cache_data(ttl=600)
-def fetch_product_list():
-    url = "https://hapix.halfclub.com/searches/prdList/?selAcntCd=A6082&limit=0,40&sortSeq=12&siteCd=1&device=pc&icnSet="
+def fetch_product_list(url):
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
@@ -108,7 +120,32 @@ if st.sidebar.button("Gemini Key 테스트", use_container_width=True):
                 st.sidebar.error(f"연결 실패: {msg}")
 
 # 상품 목록 불러오기
-products = fetch_product_list()
+default_url = "https://hapix.halfclub.com/searches/prdList/?selAcntCd=A6082&limit=0,40&sortSeq=12&siteCd=1&device=pc&icnSet="
+products = fetch_product_list(default_url)
+
+# 로컬에 생성된 동영상 파일들에서 상품 번호(prdNo) 추출
+created_prd_ids = []
+if os.path.exists("output_videos"):
+    for filename in os.listdir("output_videos"):
+        if filename.startswith("result_") and filename.endswith(".webm"):
+            prd_id = filename[7:-5]
+            if prd_id:
+                created_prd_ids.append(prd_id)
+
+# 현재 리스트에 포함되어 있지 않은 생성된 상품 번호 선별
+existing_prd_ids = {prd["id"] for prd in products} if products else set()
+missing_prd_ids = [pid for pid in created_prd_ids if pid not in existing_prd_ids]
+
+# 누락된 생성 상품이 있다면 검색 API를 통해 추가 조회 및 병합
+if missing_prd_ids and products is not None:
+    missing_url = f"https://hapix.halfclub.com/searches/prdList/?prd_no={','.join(missing_prd_ids)}&device=pc&limit=0,100&sortSeq=12"
+    extra_products = fetch_product_list(missing_url)
+    if extra_products:
+        seen_ids = set(existing_prd_ids)
+        for prd in extra_products:
+            if prd["id"] not in seen_ids:
+                products.append(prd)
+                seen_ids.add(prd["id"])
 
 # 영상이 생성된 상품 우선 정렬 (안정 정렬 적용)
 if products:
@@ -157,7 +194,20 @@ with col1:
                     
                     # 재생 중이고 동영상이 존재하면 비디오 플레이어를 상품 이미지 영역에 렌더링
                     if video_exists and st.session_state[playing_key]:
-                        st.video(video_file_path, format="video/webm", autoplay=True)
+                        import base64
+                        try:
+                            with open(video_file_path, "rb") as vf:
+                                b64 = base64.b64encode(vf.read()).decode()
+                            st.markdown(
+                                f'<div style="position: relative; width: 100%; aspect-ratio: 3/4; overflow: hidden; border-radius: 8px; border: 1px solid #eee; margin-bottom: 8px;">'
+                                f'  <video autoplay loop muted playsinline style="width: 100%; height: 100%; object-fit: cover;">'
+                                f'    <source src="data:video/webm;base64,{b64}" type="video/webm">'
+                                f'  </video>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
+                        except Exception as e:
+                            st.video(video_file_path, format="video/webm", autoplay=True)
                     else:
                         if prd["img"]:
                             st.markdown(
@@ -253,8 +303,22 @@ with col2:
                     if output_video_path and os.path.exists(output_video_path):
                         st.success("🎉 동영상 생성이 완료되었습니다!")
                         
-                        # 생성된 비디오 렌더링
-                        st.video(output_video_path, format="video/webm", autoplay=True)
+                        # 생성된 비디오 렌더링 (9:16 비율로 가득 차게 구성)
+                        import base64
+                        try:
+                            with open(output_video_path, 'rb') as video_file:
+                                video_bytes = video_file.read()
+                            b64_out = base64.b64encode(video_bytes).decode()
+                            st.markdown(
+                                f'<div style="width: 100%; aspect-ratio: 9/16; overflow: hidden; border-radius: 12px; border: 1px solid #ddd; background-color: #000; margin-bottom: 12px;">'
+                                f'  <video autoplay loop muted playsinline style="width: 100%; height: 100%; object-fit: cover;">'
+                                f'    <source src="data:video/webm;base64,{b64_out}" type="video/webm">'
+                                f'  </video>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
+                        except Exception as e:
+                            st.video(output_video_path, format="video/webm", autoplay=True)
                         
                         with open(output_video_path, 'rb') as video_file:
                             video_bytes = video_file.read()

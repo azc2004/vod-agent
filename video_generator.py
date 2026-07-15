@@ -392,7 +392,7 @@ def prepare_video_clip(clip, target_size=(1080, 1920)):
         clip = clip.cropped(x1=0, y1=y_center - target_h/2, x2=target_w, y2=y_center + target_h/2)
     return clip
 
-def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=False):
+def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=False, is_main=False):
     """
     OpenAI gpt-4o-mini 비전 모델을 사용하여 이미지를 분석합니다.
     1. 패션 모델이 포함되어 있는지 확인합니다. (모델이 없는 이미지는 제외하기 위해 False 반환)
@@ -428,7 +428,7 @@ def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=F
                                 "Analyze this product image and return a JSON object with the following fields:\n"
                                 "1. 'has_model': true if a human fashion model or mannequin wearing the clothes is present in the image, false otherwise.\n"
                                 "2. 'has_text': true if there is any written text, specifications, notice, or sizing chart overlay in the image, false otherwise.\n"
-                                "3. 'crop_box': if 'has_model' is true, specify a bounding box that contains ONLY the model and the clothing, completely cropping out and excluding any text or banners. Specify normalized coordinates between 0.0 and 1.0 as a dictionary with 'ymin', 'xmin', 'ymax', 'xmax'. If there is no text, specify the entire image (i.e., {'ymin': 0.0, 'xmin': 0.0, 'ymax': 1.0, 'xmax': 1.0}).\n"
+                                "3. 'crop_box': if 'has_model' is true, specify a bounding box that contains ONLY the model and the clothing, completely cropping out and excluding any text or banners. DO NOT crop too narrow horizontally (keep xmin=0.0 and xmax=1.0 unless there is a very obvious side banner/text overlay to exclude). The cropped area must maintain a natural vertical fashion model portrait ratio, avoiding extremely thin vertical strips. Specify normalized coordinates between 0.0 and 1.0 as a dictionary with 'ymin', 'xmin', 'ymax', 'xmax'. If there is no text, specify the entire image (i.e., {'ymin': 0.0, 'xmin': 0.0, 'ymax': 1.0, 'xmax': 1.0}).\n"
                                 "4. 'has_face': true if the human fashion model's face is clearly visible in the image, false otherwise.\n"
                                 "5. 'face_box': if 'has_face' is true, specify the bounding box containing the model's face (excluding hair or neck as much as possible, just the face area). Specify normalized coordinates between 0.0 and 1.0 as a dictionary with 'ymin', 'xmin', 'ymax', 'xmax'.\n"
                                 "\n"
@@ -467,6 +467,60 @@ def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=F
             return (None, None) if return_face_box else None
             
         crop_box = data.get("crop_box")
+        
+        # crop_box 가로/세로 최소 비율 가드레일 적용 (극단적인 세로띠 방지)
+        if crop_box and isinstance(crop_box, dict):
+            if is_main:
+                # 메인 이미지(대표 이미지)인 경우 머리 잘림 방지 및 좌우 여백 확보를 위해 가로/상단 크롭을 강제 제한합니다.
+                c_ymax = crop_box.get("ymax", 1.0)
+                if c_ymax is None or c_ymax < 0.70:
+                    c_ymax = 1.0
+                crop_box["ymin"] = 0.0
+                crop_box["xmin"] = 0.0
+                crop_box["xmax"] = 1.0
+                crop_box["ymax"] = c_ymax
+            else:
+                c_xmin = crop_box.get("xmin", 0.0)
+                c_xmax = crop_box.get("xmax", 1.0)
+                c_ymin = crop_box.get("ymin", 0.0)
+                c_ymax = crop_box.get("ymax", 1.0)
+                
+                # None 방어적 처리
+                if c_xmin is None: c_xmin = 0.0
+                if c_xmax is None: c_xmax = 1.0
+                if c_ymin is None: c_ymin = 0.0
+                if c_ymax is None: c_ymax = 1.0
+                
+                # 가로폭 가드레일 (최소 0.55 폭 유지)
+                width_ratio = c_xmax - c_xmin
+                if width_ratio < 0.55:
+                    center_x = (c_xmin + c_xmax) / 2.0
+                    c_xmin = max(0.0, center_x - 0.275)
+                    c_xmax = min(1.0, center_x + 0.275)
+                    if (c_xmax - c_xmin) < 0.55:
+                        if c_xmin == 0.0:
+                            c_xmax = 0.55
+                        elif c_xmax == 1.0:
+                            c_xmin = 0.45
+                    crop_box["xmin"] = c_xmin
+                    crop_box["xmax"] = c_xmax
+                    
+                # 세로높이 가드레일 (최소 0.5 높이 유지)
+                height_ratio = c_ymax - c_ymin
+                if height_ratio < 0.5:
+                    center_y = (c_ymin + c_ymax) / 2.0
+                    c_ymin = max(0.0, center_y - 0.25)
+                    c_ymax = min(1.0, center_y + 0.25)
+                    if (c_ymax - c_ymin) < 0.5:
+                        if c_ymin == 0.0:
+                            c_ymax = 0.5
+                        elif c_ymax == 1.0:
+                            c_ymin = 0.5
+                    crop_box["ymin"] = c_ymin
+                    crop_box["ymax"] = c_ymax
+                
+            data["crop_box"] = crop_box
+            
         has_crop = crop_box and (data.get("has_text", False) or crop_box.get("ymin", 0.0) > 0.0 or crop_box.get("xmin", 0.0) > 0.0 or crop_box.get("ymax", 1.0) < 1.0 or crop_box.get("xmax", 1.0) < 1.0)
         
         if has_crop:
@@ -552,7 +606,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
         
         if main_img_path:
             if openai_key:
-                res = process_and_crop_image_with_openai(main_img_path, openai_key, return_face_box=True)
+                res = process_and_crop_image_with_openai(main_img_path, openai_key, return_face_box=True, is_main=True)
                 if isinstance(res, tuple):
                     main_img_path, face_box = res
                     if main_img_path is None:
