@@ -18,7 +18,7 @@ from openai import OpenAI
 # macOS 환경에서 brew로 설치한 경우 보통 아래와 같습니다.
 # os.environ["IMAGEMAGICK_BINARY"] = "/opt/homebrew/bin/magick"
 
-def generate_veo_video(image_path, api_key):
+def generate_veo_video(image_path, api_key, model_name="veo-3.1-lite-generate-preview"):
     """Google Veo 3.1 API를 호출하여 정적인 이미지를 모델 워킹 비디오로 변환합니다."""
     try:
         # 새로운 google-genai SDK의 Client 객체를 API Key와 함께 생성
@@ -36,10 +36,10 @@ def generate_veo_video(image_path, api_key):
             
         img_obj = types.Image(image_bytes=img_bytes, mime_type=mime_type)
         
-        print("Veo API에 비디오 생성 요청을 전송합니다...")
+        print(f"Veo API({model_name})에 비디오 생성 요청을 전송합니다...")
         operation = client.models.generate_videos(
-            model="veo-3.1-lite-generate-preview",
-            prompt="이 이미지의 옷을 똑같이 입은 전문 패션 모델이 우아하고 천천히 360도 회전(턴)하는 실사 동영상. 모델이 천천히 돌면서 옷의 앞태, 옆태, 뒤태를 모두 보여주며 의류의 핏, 스타일, 원단 재질의 디테일과 텍스처를 선명하게 노출합니다. 동영상 재생 내내 배경화면은 아무런 변화 없이 단일 톤의 '깨끗하고 고정된 회색 스튜디오 배경'으로 완벽하게 동일하게 유지되어야 하며, 카메라 무빙은 흔들림 없이 아주 부드럽고 천천히 줌인되며, 옷의 디자인과 색상, 패턴은 입력 이미지와 완벽하게 일치하고 왜곡이나 환각 현상이 없어야 합니다.",
+            model=model_name,
+            prompt="이 이미지의 첫 모습을 그대로 유지한 채 시작하여, 이미지 속 모델이 제자리에 서서 우아하고 천천히 360도 회전(턴)하는 실사 동영상. 모델이 천천히 돌면서 옷의 앞태, 옆태, 뒤태를 모두 보여주며 의류의 핏, 스타일, 원단 재질의 디테일과 텍스처를 선명하게 노출합니다. 동영상 재생 내내 배경화면은 입력 이미지의 배경과 완벽하게 일치해야 하며, 아무런 변화나 다른 배경으로의 전환 없이 원본 이미지의 배경이 그대로 유지되어야 합니다. 카메라 무빙은 흔들림 없이 아주 부드럽고 천천히 유지되며, 옷의 디자인과 색상, 패턴은 입력 이미지와 완벽하게 일치하고 왜곡이나 환각 현상이 없어야 합니다.",
             image=img_obj,
             config=types.GenerateVideosConfig(
                 aspect_ratio="9:16",
@@ -52,6 +52,12 @@ def generate_veo_video(image_path, api_key):
             print("비디오 생성 진행 중... (15초 후 재확인)")
             time.sleep(15)
             operation = client.operations.get(operation)
+            
+        if operation.error:
+            raise Exception(f"Google Veo API 작업 실패: {operation.error}")
+            
+        if not operation.response or not getattr(operation.response, "generated_videos", None):
+            raise Exception(f"Google Veo API 응답 오류 (response: {operation.response})")
             
         generated_video = operation.response.generated_videos[0]
         
@@ -77,7 +83,7 @@ def generate_luma_video(image_url, api_key):
         "Content-Type": "application/json"
     }
     payload = {
-        "prompt": "이 이미지의 옷을 똑같이 입은 전문 패션 모델이 우아하고 천천히 360도 회전(턴)하는 실사 동영상. 모델이 천천히 돌면서 옷의 앞태, 옆태, 뒤태를 모두 보여주며 의류의 핏, 스타일, 원단 재질의 디테일과 텍스처를 선명하게 노출합니다. 동영상 재생 내내 배경화면은 아무런 변화 없이 단일 톤의 '깨끗하고 고정된 회색 스튜디오 배경'으로 완벽하게 동일하게 유지되어야 하며, 카메라 무빙은 흔들림 없이 아주 부드럽고 천천히 줌인되며, 옷의 디자인과 색상, 패턴은 입력 이미지와 완벽하게 일치하고 왜곡이나 환각 현상이 없어야 합니다.",
+        "prompt": "이 이미지의 첫 모습을 그대로 유지한 채 시작하여, 이미지 속 모델이 제자리에 서서 우아하고 천천히 360도 회전(턴)하는 실사 동영상. 모델이 천천히 돌면서 옷의 앞태, 옆태, 뒤태를 모두 보여주며 의류의 핏, 스타일, 원단 재질의 디테일과 텍스처를 선명하게 노출합니다. 동영상 재생 내내 배경화면은 입력 이미지의 배경과 완벽하게 일치해야 하며, 아무런 변화나 다른 배경으로의 전환 없이 원본 이미지의 배경이 그대로 유지되어야 합니다. 카메라 무빙은 흔들림 없이 아주 부드럽고 천천히 유지되며, 옷의 디자인과 색상, 패턴은 입력 이미지와 완벽하게 일치하고 왜곡이나 환각 현상이 없어야 합니다.",
         "keyframes": {
             "frame0": {
                 "type": "image",
@@ -230,7 +236,8 @@ def parse_html_description(html_content):
         "size", "guide", "notice", "delivery", "caution", "washing", "spec", "table", 
         "banner", "info", "wash", "event", "intro", "coupon", "map", "detail_info",
         "배송", "사이즈", "스펙", "안내", "공지", "세탁", "주의", "이벤트", "배너", "가이드",
-        "쿠폰", "지도", "상세정보", "교환", "반품"
+        "쿠폰", "지도", "상세정보", "교환", "반품",
+        "ico", "check"
     ]
     
     for img in soup.find_all('img'):
@@ -244,10 +251,16 @@ def parse_html_description(html_content):
             # 설명/스펙/공지 관련 이미지인지 키워드 검사
             url_lower = src.lower()
             should_exclude = False
-            for kw in exclude_keywords:
-                if kw in url_lower:
-                    should_exclude = True
-                    break
+            
+            # gif 파일 차단
+            if url_lower.endswith(".gif"):
+                should_exclude = True
+                
+            if not should_exclude:
+                for kw in exclude_keywords:
+                    if kw in url_lower:
+                        should_exclude = True
+                        break
             
             if not should_exclude:
                 detail_images.append(src)
@@ -445,22 +458,26 @@ def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=F
         data = json.loads(result_content)
         print(f"OpenAI 이미지 분석 결과 [{os.path.basename(image_path)}]: {data}")
         
+        # 방어적 코드: data가 dict가 아닐 경우의 AttributeError 방지
+        if not isinstance(data, dict):
+            data = {}
+            
         if not data.get("has_model", False):
             print(f"-> 모델 미검출로 이미지 제외: {image_path}")
             return (None, None) if return_face_box else None
             
         crop_box = data.get("crop_box")
-        has_crop = crop_box and (data.get("has_text", False) or crop_box["ymin"] > 0.0 or crop_box["xmin"] > 0.0 or crop_box["ymax"] < 1.0 or crop_box["xmax"] < 1.0)
+        has_crop = crop_box and (data.get("has_text", False) or crop_box.get("ymin", 0.0) > 0.0 or crop_box.get("xmin", 0.0) > 0.0 or crop_box.get("ymax", 1.0) < 1.0 or crop_box.get("xmax", 1.0) < 1.0)
         
         if has_crop:
             print(f"-> 텍스트 영역 크롭 시작: {crop_box}")
             pil_img = Image.open(image_path)
             width, height = pil_img.size
             
-            ymin = int(crop_box["ymin"] * height)
-            xmin = int(crop_box["xmin"] * width)
-            ymax = int(crop_box["ymax"] * height)
-            xmax = int(crop_box["xmax"] * width)
+            ymin = int(crop_box.get("ymin", 0.0) * height)
+            xmin = int(crop_box.get("xmin", 0.0) * width)
+            ymax = int(crop_box.get("ymax", 1.0) * height)
+            xmax = int(crop_box.get("xmax", 1.0) * width)
             
             # 범위 검증
             ymin = max(0, min(ymin, height - 1))
@@ -476,16 +493,19 @@ def process_and_crop_image_with_openai(image_path, openai_key, return_face_box=F
         face_box = None
         if data.get("has_face", False) and data.get("face_box"):
             orig_face = data.get("face_box")
-            if has_crop:
+            if has_crop and isinstance(crop_box, dict) and isinstance(orig_face, dict):
                 # 크롭된 경우 상대 좌표 계산
-                c_ymin, c_xmin, c_ymax, c_xmax = crop_box["ymin"], crop_box["xmin"], crop_box["ymax"], crop_box["xmax"]
+                c_ymin = crop_box.get("ymin", 0.0)
+                c_xmin = crop_box.get("xmin", 0.0)
+                c_ymax = crop_box.get("ymax", 1.0)
+                c_xmax = crop_box.get("xmax", 1.0)
                 denom_y = c_ymax - c_ymin if (c_ymax - c_ymin) > 0 else 1.0
                 denom_x = c_xmax - c_xmin if (c_xmax - c_xmin) > 0 else 1.0
                 face_box = {
-                    "ymin": max(0.0, min(1.0, (orig_face["ymin"] - c_ymin) / denom_y)),
-                    "xmin": max(0.0, min(1.0, (orig_face["xmin"] - c_xmin) / denom_x)),
-                    "ymax": max(0.0, min(1.0, (orig_face["ymax"] - c_ymin) / denom_y)),
-                    "xmax": max(0.0, min(1.0, (orig_face["xmax"] - c_xmin) / denom_x))
+                    "ymin": max(0.0, min(1.0, (orig_face.get("ymin", 0.0) - c_ymin) / denom_y)),
+                    "xmin": max(0.0, min(1.0, (orig_face.get("xmin", 0.0) - c_xmin) / denom_x)),
+                    "ymax": max(0.0, min(1.0, (orig_face.get("ymax", 1.0) - c_ymin) / denom_y)),
+                    "xmax": max(0.0, min(1.0, (orig_face.get("xmax", 1.0) - c_xmin) / denom_x))
                 }
             else:
                 face_box = orig_face
@@ -527,25 +547,114 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
         
         # 메인 이미지에 텍스트가 있으면 잘라냅니다.
         face_box = None
-        if main_img_path and openai_key:
-            main_img_path, face_box = process_and_crop_image_with_openai(main_img_path, openai_key, return_face_box=True)
+        main_img_has_model = True
+        found_face_url = main_image_url
+        
+        if main_img_path:
+            if openai_key:
+                res = process_and_crop_image_with_openai(main_img_path, openai_key, return_face_box=True)
+                if isinstance(res, tuple):
+                    main_img_path, face_box = res
+                    if main_img_path is None:
+                        main_img_has_model = False
+                else:
+                    main_img_path = res
+                    face_box = None
+            else:
+                face_box = None
+
+        # 대표이미지에서 모델 얼굴을 확인할 수 있는지 여부를 판단합니다.
+        has_face_in_main = (face_box is not None)
+        
+        # 얼굴 탐색 파이프라인: 대표이미지에서 얼굴을 확인할 수 없는 경우에만 추가/상세 이미지 중에서 얼굴 탐색을 진행합니다.
+        if not has_face_in_main and openai_key:
+            print("🔍 대표이미지에서 모델 얼굴을 확인할 수 없어 추가 이미지 및 상세 이미지에서 최적의 모델 얼굴 이미지를 탐색/검증합니다...")
+            found_face_img = None
+            found_face_box = None
+            
+            # 1. 추가 이미지 탐색 (최대 3장)
+            for idx, url in enumerate(additional_image_urls[:3]):
+                path = download_image(url, temp_dir)
+                if path:
+                    res = process_and_crop_image_with_openai(path, openai_key, return_face_box=True)
+                    if isinstance(res, tuple) and res[0] is not None and res[1] is not None:
+                        found_face_img, found_face_box = res
+                        found_face_url = url
+                        print(f"-> 추가 이미지 [{idx}]에서 선명한 모델 얼굴을 감지했습니다: {url}")
+                        break
+                    else:
+                        if os.path.exists(path):
+                            try: os.remove(path)
+                            except: pass
+            
+            # 2. 추가 이미지에서 감지하지 못했거나, 상세 이미지(진짜 화보 컷들)에서 탐색 (최대 5장)
+            if not found_face_img and detail_image_urls:
+                for idx, url in enumerate(detail_image_urls[:5]):
+                    path = download_image(url, temp_dir)
+                    if path:
+                        res = process_and_crop_image_with_openai(path, openai_key, return_face_box=True)
+                        if isinstance(res, tuple) and res[0] is not None and res[1] is not None:
+                            found_face_img, found_face_box = res
+                            found_face_url = url
+                            print(f"-> 상세 이미지 [{idx}]에서 선명한 모델 얼굴을 감지했습니다: {url}")
+                            break
+                        else:
+                            if os.path.exists(path):
+                                try: os.remove(path)
+                                except: pass
+            
+            # 얼굴이 있는 더 확실한 모델 컷을 찾았다면 메인 소스 교체 대신 face_box 보정용으로만 사용
+            if found_face_img:
+                if face_box is None and found_face_box is not None:
+                    face_box = found_face_box
+                    print(f"=== [보정] 메인 이미지에 감지된 얼굴이 없어 추가 이미지의 face_box({face_box})를 사용합니다. ===")
+                print("=== 대표 이미지 첫 모습을 온전히 유지하기 위해 메인 이미지 소스 교체는 생략합니다. ===")
+            else:
+                if face_box:
+                    print("=== 메인 이미지의 기존 감지된 얼굴을 최종 비디오 소스로 유지합니다. ===")
+                else:
+                    print("⚠️ 얼굴 이미지를 찾지 못했습니다. 기존 메인 이미지를 폴백으로 유지합니다.")
+        elif has_face_in_main:
+            print("✨ 대표이미지에서 모델 얼굴이 이미 확인되었습니다. 추가/상세 이미지의 얼굴 탐색을 건너뜁니다.")
         
         add_img_paths = []
-        # 전후좌우 및 다양한 핏을 노출하기 위해 최대 8장 다운로드 후 필터링
-        for url in additional_image_urls[:8]:
-            path = download_image(url, temp_dir)
-            if path:
-                if openai_key:
-                    processed_path = process_and_crop_image_with_openai(path, openai_key)
-                    if processed_path:
-                        add_img_paths.append(processed_path)
+        # 대표이미지에서 모델 얼굴을 확인할 수 없는 경우만 상세이미지(추가이미지 포함)를 사용합니다.
+        if not has_face_in_main:
+            print("대표이미지에서 얼굴을 확인할 수 없으므로 추가 이미지를 다운로드 및 분석하여 수집합니다...")
+            # 전후좌우 및 다양한 핏을 노출하기 위해 최대 5장 다운로드 후 필터링
+            for url in additional_image_urls[:5]:
+                path = download_image(url, temp_dir)
+                if path:
+                    if openai_key:
+                        processed_path = process_and_crop_image_with_openai(path, openai_key)
+                        if processed_path:
+                            add_img_paths.append(processed_path)
+                        else:
+                            if os.path.exists(path): os.remove(path)
                     else:
-                        if os.path.exists(path): os.remove(path)
-                else:
-                    add_img_paths.append(path)
+                        add_img_paths.append(path)
+        else:
+            print("✨ 대표이미지에서 모델 얼굴이 확인되었으므로 추가 이미지 수집을 생략합니다.")
             
-        # 상품상세이미지는 참고하지 않으므로 detail_img_paths를 빈 리스트로 설정하고 다운로드를 건너뜁니다.
+        # 상세 이미지(detail_image_urls) 중 필터링되지 않은 유효한 피팅 컷들을 다운로드하여 수집 (최대 5장)
         detail_img_paths = []
+        if not has_face_in_main and detail_image_urls:
+            print("상세 이미지에서 동영상 클립용 이미지 리소스(최대 5장)를 수집합니다...")
+            for url in detail_image_urls[:5]:
+                if url == found_face_url:
+                    continue
+                path = download_image(url, temp_dir)
+                if path:
+                    if openai_key:
+                        processed_path = process_and_crop_image_with_openai(path, openai_key)
+                        if processed_path:
+                            detail_img_paths.append(processed_path)
+                        else:
+                            if os.path.exists(path): os.remove(path)
+                    else:
+                        detail_img_paths.append(path)
+        elif has_face_in_main:
+            print("✨ 대표이미지에서 모델 얼굴이 확인되었으므로 상세 이미지 수집을 생략합니다.")
             
         # 4. 동영상 클립 구성
         print("4. 동영상 렌더링 준비 중...")
@@ -555,56 +664,97 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
         # Scene 1: 대표 이미지 활용 인트로
         animated_intro_path = None
         if api_key:
-            if video_model in ["Google Veo 3.1", "Google Veo 3.1 Lite"] and main_img_path:
+            # 모델 얼굴이 이미지 내에 제대로 감지되었을 때만 AI 비디오 생성을 호출합니다.
+            if face_box is None:
+                print("⚠️ 경고: 모델의 얼굴이 이미지 내에서 감지되지 않았습니다. AI 동영상 생성 시 가상의 얼굴이 기괴하게 합성되는 현상을 방지하기 위해 정적 이미지 슬라이드쇼로 대체합니다.")
                 try:
-                    print("Google Veo 3.1 API를 사용하여 살아 움직이는 모델 워킹 영상 생성 중...")
-                    animated_intro_path = generate_veo_video(main_img_path, api_key)
-                except Exception as veo_err:
+                    import streamlit as st
+                    st.info("ℹ️ 모델의 얼굴이 감지되지 않아, 기괴한 얼굴 합성 방지를 위해 정적 이미지 슬라이드쇼로 안전하게 대체합니다.")
+                except Exception:
+                    pass
+            else:
+                # 429 RESOURCE_EXHAUSTED 및 쿼터 한계 극복을 위한 순차적 폴백 모델 파이프라인 설계 (Lite > Fast > 고성능 순)
+                model_pipeline = []
+                if video_model in ["Google Veo 3.1", "Google Veo 3.1 Lite"]:
+                    model_pipeline = [
+                        {"type": "veo", "model_id": "veo-3.1-lite-generate-preview", "desc": "Google Veo 3.1 Lite (경량화)"},
+                        {"type": "veo", "model_id": "veo-3.1-fast-generate-preview", "desc": "Google Veo 3.1 Fast (고속)"},
+                        {"type": "veo", "model_id": "veo-3.1-generate-preview", "desc": "Google Veo 3.1 (고성능)"},
+                        {"type": "luma", "desc": "Luma Dream Machine (타사 대체)"}
+                    ]
+                elif video_model == "Luma Dream Machine":
+                    model_pipeline = [
+                        {"type": "luma", "desc": "Luma Dream Machine (주력)"},
+                        {"type": "veo", "model_id": "veo-3.1-lite-generate-preview", "desc": "Google Veo 3.1 Lite (경량화 대체)"},
+                        {"type": "veo", "model_id": "veo-3.1-fast-generate-preview", "desc": "Google Veo 3.1 Fast (고속 대체)"},
+                        {"type": "veo", "model_id": "veo-3.1-generate-preview", "desc": "Google Veo 3.1 (고성능 대체)"}
+                    ]
+                
+                # 라우팅 파이프라인 시도
+                for idx, attempt in enumerate(model_pipeline):
                     try:
-                        import streamlit as st
-                        st.warning(f"⚠️ Google Veo 3.1 모델 호출 실패 (정적 이미지 슬라이드쇼로 대체됩니다): {veo_err}")
-                    except Exception:
-                        pass
-                    print(f"Google Veo 모델 워킹 비디오 생성 오류 (스틸 이미지로 대체): {veo_err}")
-            elif video_model == "Luma Dream Machine" and main_image_url:
-                try:
-                    print("Luma Dream Machine API를 사용하여 살아 움직이는 모델 워킹 영상 생성 중...")
-                    luma_video_url = generate_luma_video(main_image_url, api_key)
-                    if luma_video_url:
-                        animated_intro_path = download_video(luma_video_url, temp_dir)
-                except Exception as luma_err:
-                    try:
-                        import streamlit as st
-                        st.warning(f"⚠️ Luma Dream Machine 호출 실패 (정적 이미지 슬라이드쇼로 대체됩니다): {luma_err}")
-                    except Exception:
-                        pass
-                    print(f"Luma AI 모델 워킹 비디오 생성 오류 (스틸 이미지로 대체): {luma_err}")
+                        if idx > 0:
+                            print("⚠️ 분당 요청 한도(RPM) 초과 방지를 위해 5초간 대기 후 다음 모델을 호출합니다...")
+                            time.sleep(5)
+                        print(f"=== [시도 {idx+1}/{len(model_pipeline)}] {attempt['desc']} 호출 시도 ===")
+                        if attempt["type"] == "veo":
+                            if main_img_path:
+                                animated_intro_path = generate_veo_video(main_img_path, api_key, model_name=attempt["model_id"])
+                        elif attempt["type"] == "luma":
+                            if main_image_url:
+                                luma_video_url = generate_luma_video(main_image_url, api_key)
+                                if luma_video_url:
+                                    animated_intro_path = download_video(luma_video_url, temp_dir)
+                                    
+                        if animated_intro_path and os.path.exists(animated_intro_path):
+                            print(f"✅ 성공! {attempt['desc']}를 통해 비디오를 정상적으로 생성했습니다.")
+                            break
+                    except Exception as err:
+                        print(f"❌ 실패: {attempt['desc']} 생성 중 에러 발생 ({err})")
+                        try:
+                            import streamlit as st
+                            st.warning(f"⚠️ {attempt['desc']} 호출 오류 (차순위 모델로 폴백 시도): {err}")
+                        except Exception:
+                            pass
         
         if animated_intro_path and os.path.exists(animated_intro_path):
             print("생성된 AI 모델 워킹/회전 비디오를 연동합니다.")
             video_clip = VideoFileClip(animated_intro_path)
             video_clip = prepare_video_clip(video_clip, target_resolution)
-            clips.append(video_clip)
             
+            # 대표 이미지 첫 모습을 유지한 채 시작하기 위해, 생성된 비디오의 첫 프레임을 추출하여 1.5초 동안 정적으로 노출
+            intro_duration = 1.5
+            try:
+                first_frame_img = video_clip.get_frame(0)
+                intro_clip = ImageClip(first_frame_img).with_duration(intro_duration)
+                print("✅ 비디오 첫 프레임 추출을 통해 인트로 클립을 생성했습니다. 완벽하게 연결됩니다.")
+            except Exception as e:
+                print(f"⚠️ 첫 프레임 추출 실패, 기존 방식으로 폴백: {e}")
+                intro_clip = prepare_clip(main_img_path, target_resolution, duration=intro_duration, face_box=face_box)
+            
+            # 전체 클립 조합: [정적 인트로 클립, AI 생성 비디오 클립] + [추가 이미지 클립들...]
             # 총 재생 시간 10초를 맞추기 위한 로직
-            # AI 비디오 길이를 L이라 할 때, 추가 이미지 클립 K개(2개)를 넣는다면:
-            # L + K * d - 0.5 * K = 10.0 => K * d = 10.0 - L + 0.5 * K => d = (10.0 - L) / K + 0.5
+            # 정적 인트로(1.5초) + AI 비디오 길이 L이라 할 때, 나머지 시간을 추가 이미지 클립 K개로 채웁니다.
             L = video_clip.duration
-            if L >= 10.0:
-                # 만약 AI 비디오가 10초 이상이면 10초로 자르고 그것만 사용
+            total_intro_L = intro_duration + L
+            
+            if total_intro_L >= 10.0:
+                # 만약 정적 인트로 + AI 비디오가 10초 이상이면 정적 인트로와 잘린 AI 비디오만 사용
+                remaining_L = max(1.0, 10.0 - intro_duration)
                 try:
-                    video_clip = video_clip.subclipped(0, 10.0)
+                    video_clip = video_clip.subclipped(0, remaining_L)
                 except AttributeError:
-                    video_clip = video_clip.subclip(0, 10.0)
-                clips = [video_clip]
+                    video_clip = video_clip.subclip(0, remaining_L)
+                clips = [intro_clip, video_clip]
             else:
                 K = 2
-                d = (10.0 - L) / K
+                d = (10.0 - total_intro_L) / K
                 if d < 1.0:
                     d = 1.0
                 
-                # 상세 이미지를 제외하므로 추가 이미지(add_img_paths)만 사용
-                focus_paths = add_img_paths[:K]
+                # 추가 이미지 및 상세 이미지를 모두 결합하여 사용
+                candidate_paths = add_img_paths + detail_img_paths
+                focus_paths = candidate_paths[:K]
                 while len(focus_paths) < K and main_img_path:
                     focus_paths.append(main_img_path)
                 
@@ -614,7 +764,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
                     clip = prepare_clip(img_path, target_resolution, duration=d, face_box=current_face_box)
                     image_clips.append(clip)
                 
-                clips = [video_clip] + image_clips
+                clips = [intro_clip, video_clip] + image_clips
         else:
             # Fallback: 스틸 이미지 슬라이드쇼 연출 (정확히 10초 재생)
             print("AI 비디오 생성 실패 또는 비활성화로 인해, 스틸 이미지 슬라이드쇼로 대체합니다.")
@@ -622,6 +772,7 @@ def generate_product_video(product_no, api_key=None, openai_key=None, video_mode
             if main_img_path:
                 all_img_paths.append(main_img_path)
             all_img_paths.extend(add_img_paths)
+            all_img_paths.extend(detail_img_paths)
             
             all_img_paths = [p for p in all_img_paths if p and os.path.exists(p)]
             
