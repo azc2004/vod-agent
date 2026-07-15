@@ -8,29 +8,7 @@ st.set_page_config(page_title="상품 동영상 생성 봇", page_icon="🎬", l
 @st.dialog("🎥 생성 완료된 동영상 재생", width="large")
 def play_video_modal(video_path):
     st.write("로컬 파일로부터 생성된 동영상을 로드했습니다.")
-    with open(video_path, 'rb') as f:
-        video_bytes = f.read()
-    st.video(video_bytes)
-
-# 쿼리 파라미터를 통한 재생/삭제 액션 처리
-query_params = st.query_params
-if "delete_id" in query_params:
-    del_id = query_params["delete_id"]
-    video_file_path = f"output_videos/result_{del_id}.webm"
-    if os.path.exists(video_file_path):
-        try:
-            os.remove(video_file_path)
-        except Exception:
-            pass
-    st.query_params.clear()
-    st.rerun()
-
-if "play_id" in query_params:
-    play_id = query_params["play_id"]
-    playing_key = f"playing_{play_id}"
-    st.session_state[playing_key] = True
-    st.query_params.clear()
-    st.rerun()
+    st.video(video_path, autoplay=True)
 
 st.title("🎬 상품 동영상 자동 생성기")
 st.markdown("""
@@ -132,6 +110,13 @@ if st.sidebar.button("Gemini Key 테스트", use_container_width=True):
 # 상품 목록 불러오기
 products = fetch_product_list()
 
+# 영상이 생성된 상품 우선 정렬 (안정 정렬 적용)
+if products:
+    products = sorted(
+        products,
+        key=lambda prd: not os.path.exists(f"output_videos/result_{prd['id']}.webm")
+    )
+
 # 레이아웃 나누기 (왼쪽: 상품 리스트, 오른쪽: 동영상 생성 및 결과)
 col1, col2 = st.columns([2, 1])
 
@@ -157,116 +142,74 @@ with col1:
         cols = st.columns(4)
         for idx, prd in enumerate(products):
             with cols[idx % 4]:
-                # 이미 생성된 동영상이 있는지 확인
-                video_file_path = f"output_videos/result_{prd['id']}.webm"
-                video_exists = os.path.exists(video_file_path)
-                
-                # 재생 상태 관리 키
-                playing_key = f"playing_{prd['id']}"
-                if playing_key not in st.session_state:
-                    st.session_state[playing_key] = False
-                
-                # 상세 페이지 링크 규칙
-                detail_url = f"https://www.halfclub.com/product/{prd['id']}"
-                
-                if st.session_state[playing_key] and video_exists:
-                    # 비디오가 재생 상태이면 이미지 크기에 맞춰 st.video 렌더링 (자동 재생 활성화)
-                    with open(video_file_path, 'rb') as vf:
-                        v_bytes = vf.read()
-                    st.video(v_bytes, format="video/webm", autoplay=True)
-                    if st.button("🖼️ 이미지 보기", key=f"stop_{prd['id']}", use_container_width=True):
+                with st.container(border=True):
+                    # 이미 생성된 동영상이 있는지 확인
+                    video_file_path = f"output_videos/result_{prd['id']}.webm"
+                    video_exists = os.path.exists(video_file_path)
+                    
+                    # 재생 상태 관리 키
+                    playing_key = f"playing_{prd['id']}"
+                    if playing_key not in st.session_state:
                         st.session_state[playing_key] = False
-                        st.rerun()
-                else:
-                    if prd["img"]:
-                        if video_exists:
-                            # 이미지가 클릭 가능하고 중앙에 재생 버튼 아이콘 오버레이 노출
+                    
+                    # 상세 페이지 링크 규칙
+                    detail_url = f"https://www.halfclub.com/product/{prd['id']}"
+                    
+                    # 재생 중이고 동영상이 존재하면 비디오 플레이어를 상품 이미지 영역에 렌더링
+                    if video_exists and st.session_state[playing_key]:
+                        st.video(video_file_path, format="video/webm", autoplay=True)
+                    else:
+                        if prd["img"]:
                             st.markdown(
                                 f'<div style="position: relative; width: 100%; aspect-ratio: 3/4; overflow: hidden; border-radius: 8px; border: 1px solid #eee; margin-bottom: 8px;">'
                                 f'  <a href="{detail_url}" target="_blank" style="display:block; width:100%; height:100%;">'
                                 f'    <img src="{prd["img"]}" style="width:100%; height:100%; object-fit:cover;" title="새창으로 상세 상품 보기">'
                                 f'  </a>'
-                                f'  <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; color: white; font-size: 11px; font-weight: bold; pointer-events: none;">'
-                                f'    🎬 생성 완료'
-                                f'  </div>'
+                                + (
+                                    f'  <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); padding: 4px 8px; border-radius: 4px; color: white; font-size: 11px; font-weight: bold; pointer-events: none;">'
+                                    f'    🎬 생성 완료'
+                                    f'  </div>' if video_exists else ''
+                                ) +
                                 f'</div>',
-                                unsafe_allow_html=True
-                            )
-                            # 재생버튼 호버 시 우측 상단에 작은 x가 붙는 HTML/CSS 적용
-                            st.markdown(f"""
-                            <style>
-                            .btn-container {{
-                                position: relative;
-                                display: inline-block;
-                                width: 100%;
-                            }}
-                            .play-btn {{
-                                display: block;
-                                width: 100%;
-                                background-color: #f8f9fa;
-                                color: #212529;
-                                text-align: center;
-                                padding: 8px 16px;
-                                font-size: 14px;
-                                border-radius: 8px;
-                                text-decoration: none;
-                                font-weight: 500;
-                                border: 1px solid #dee2e6;
-                                transition: background-color 0.2s, color 0.2s;
-                            }}
-                            .play-btn:hover {{
-                                background-color: #e9ecef;
-                                color: #212529;
-                            }}
-                            .delete-x {{
-                                position: absolute;
-                                top: -6px;
-                                right: -6px;
-                                width: 18px;
-                                height: 18px;
-                                background-color: #fa5252;
-                                color: white;
-                                border-radius: 50%;
-                                text-align: center;
-                                line-height: 16px;
-                                font-size: 11px;
-                                font-weight: bold;
-                                text-decoration: none;
-                                opacity: 0;
-                                transition: opacity 0.2s, transform 0.2s;
-                                box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-                                transform: scale(0.8);
-                            }}
-                            .btn-container:hover .delete-x {{
-                                opacity: 1;
-                                transform: scale(1);
-                            }}
-                            .delete-x:hover {{
-                                background-color: #e03131;
-                                color: white;
-                            }}
-                            </style>
-                            <div class="btn-container">
-                                <a class="play-btn" href="?play_id={prd['id']}" target="_self">▶️ 재생</a>
-                                <a class="delete-x" href="?delete_id={prd['id']}" target="_self" title="동영상 삭제">×</a>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            # 일반 이미지 링크
-                            st.markdown(
-                                f'<a href="{detail_url}" target="_blank">'
-                                f'<img src="{prd["img"]}" style="width:100%; border-radius:8px; aspect-ratio:3/4; object-fit:cover; margin-bottom:8px; border:1px solid #eee; cursor:pointer;" title="새창으로 상세 상품 보기">'
-                                f'</a>',
                                 unsafe_allow_html=True
                             )
                     
                     st.caption(f"**[{prd['brand']}]** {prd['name']}")
                     if prd["price"]:
                         st.caption(f"가격: {prd['price']:,}원")
+                    else:
+                        st.caption(" ")
                     
-                    if st.button("선택", key=f"select_{prd['id']}", use_container_width=True):
-                        st.session_state["selected_prd_id"] = prd["id"]
-                        st.session_state["selected_prd_name"] = prd["name"]
+                    if video_exists:
+                        btn_col1, btn_col2 = st.columns([3, 1])
+                        with btn_col1:
+                            if st.session_state[playing_key]:
+                                if st.button("🖼️ 이미지", key=f"stop_{prd['id']}", use_container_width=True):
+                                    st.session_state[playing_key] = False
+                                    st.rerun()
+                            else:
+                                if st.button("▶️ 재생", key=f"play_{prd['id']}", use_container_width=True):
+                                    st.session_state[playing_key] = True
+                                    st.rerun()
+                        with btn_col2:
+                            if st.button("🗑️", key=f"del_{prd['id']}", use_container_width=True, help="동영상 삭제"):
+                                try:
+                                    os.remove(video_file_path)
+                                    st.session_state[playing_key] = False
+                                    st.toast("동영상이 삭제되었습니다.")
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"삭제 실패: {err}")
+                                    
+                        if st.button("선택", key=f"select_{prd['id']}", use_container_width=True):
+                            st.session_state["selected_prd_id"] = prd["id"]
+                            st.session_state["selected_prd_name"] = prd["name"]
+                            st.rerun()
+                    else:
+                        if st.button("선택", key=f"select_{prd['id']}", use_container_width=True):
+                            st.session_state["selected_prd_id"] = prd["id"]
+                            st.session_state["selected_prd_name"] = prd["name"]
+                            st.rerun()
     else:
         st.info("불러온 상품이 없습니다.")
 
@@ -289,6 +232,13 @@ with col2:
     # AI 생성 활성화 토글 (비용 절감용)
     use_ai = st.checkbox("🤖 AI 모델 워킹/회전 비디오 생성 활성화 (API 호출 비용 발생)", value=True)
 
+    st.info(
+        "💡 **API 할당량(Quota) 제한 안내**\n\n"
+        "현재 구글 AI 스튜디오 Veo 모델의 분당 요청 제한(RPM)은 **최대 2회**로 매우 제한적입니다. "
+        "따라서 한 번의 동영상 생성이 완료된 후 다음 상품 동영상을 만들 때는 **최소 30초 ~ 1분 이상의 시간 여유**를 두고 실행해 주시기 바랍니다. "
+        "(일일 한도 RPD가 남아있더라도 연속으로 누르면 `429 RESOURCE_EXHAUSTED` 한계 에러가 발생합니다.)"
+    )
+
     if st.button("🚀 동영상 생성 시작", type="primary", use_container_width=True):
         if not target_prd_id:
             st.warning("상품 번호를 입력하거나 리스트에서 선택해주세요.")
@@ -304,10 +254,10 @@ with col2:
                         st.success("🎉 동영상 생성이 완료되었습니다!")
                         
                         # 생성된 비디오 렌더링
+                        st.video(output_video_path, format="video/webm", autoplay=True)
+                        
                         with open(output_video_path, 'rb') as video_file:
                             video_bytes = video_file.read()
-                        
-                        st.video(video_bytes, format="video/webm", autoplay=True)
                         
                         # 다운로드 버튼 제공
                         st.download_button(
